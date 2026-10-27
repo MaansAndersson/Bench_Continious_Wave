@@ -63,8 +63,9 @@ sim = mp.Simulation(cell_size=cell,
                     split_chunks_evenly=False)
 
 sim.init_sim()
-sim.solve_waveholtz_cw(1e-7,100,50)
-#sim.solve_cw(1e-7,10000,2)
+# MeepHoltz: solve_wh(tol, maxiters, L, periods, solver); res 100 needs ~450 GMRES iterations
+sim.solve_wh(1e-7,10000,50)
+#sim.solve_cw(1e-7,10000,2)  # needs force_complex_fields=True; breaks down for this eps < 0 sphere
 
 ## output for ParaView: one HDF5 file + an XDMF descriptor (open the .xdmf in ParaView)
 import os
