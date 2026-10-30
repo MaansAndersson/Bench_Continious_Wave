@@ -1,6 +1,7 @@
 # 3D PEC cavity benchmark: solve_cw vs solve_wh (MeepHoltz fork), C++ and Python interfaces.
 #
 #   make                    build ./cavity against the MeepHoltz install in MEEP_PREFIX
+#   make cavity_omp         MPI+OpenMP ./cavity_omp against MEEP_OMP_PREFIX (for extrae.slurm)
 #   make check              tiny serial + MPI smoke test of every iface/solver combination
 #   make convergence        local grid refinement over RES_LIST, then analyze.py
 #   make strong|weak|conv   submit the TinkerCliff scaling / convergence jobs (submit.sh)
@@ -9,7 +10,8 @@
 #
 # solve_wh settings (lists allowed; every combination runs, cw once):
 #   WHSOLVER=gmres|bicgstab   PERIODS=1   e.g.  make convergence WHSOLVER="gmres bicgstab" PERIODS="1 2"
-# Source angular frequency: OMEGA [1]; a non-default one writes to results/local_w<OMEGA>.
+# Source angular frequency: OMEGA [1], a list runs each value; omega != 1 writes to
+# results/local_w<omega>.
 # The same variables drive cavity.slurm / submit.sh.
 #
 # Locally MEEP_ROOT is the MeepHoltz checkout (install in _local, built by build_meep.sh).
@@ -27,7 +29,6 @@ WHSOLVER    ?= gmres
 PERIODS     ?= 1
 OMEGA       ?= 1
 export WHSOLVER PERIODS OMEGA
-LOCAL_OUT   := results/local$(if $(filter-out 1,$(OMEGA)),_w$(OMEGA))
 
 # "cw" plus "wh -whsolver W -periods P" for every W x P (spaces kept as _ inside one word)
 WH_VARIANTS := $(foreach w,$(WHSOLVER),$(foreach p,$(PERIODS),wh_-whsolver_$(w)_-periods_$(p)))
@@ -56,6 +57,13 @@ all: cavity
 cavity: cavity.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
 
+# Same driver against a MeepHoltz configured --with-openmp (extrae/build_meep_omp.sh). Its libmeep
+# comes first; the other libraries (libctl, harminv, ...) are taken from MEEP_PREFIX.
+MEEP_OMP_PREFIX ?= $(MEEP_ROOT)/_local_omp
+cavity_omp: cavity.cpp
+	$(CXX) $(CXXFLAGS) -fopenmp -I$(MEEP_OMP_PREFIX)/include $(CPPFLAGS) -o $@ $< \
+	  -L$(MEEP_OMP_PREFIX)/lib -Wl,-rpath,$(MEEP_OMP_PREFIX)/lib $(LDFLAGS) $(LDLIBS)
+
 check: cavity
 	@for v in wh_-whsolver_gmres_-periods_1 wh_-whsolver_bicgstab_-periods_2 cw; do \
 	  s=$$(echo $$v | tr _ ' '); \
@@ -66,14 +74,16 @@ check: cavity
 	done
 
 convergence: cavity
-	@mkdir -p $(LOCAL_OUT)
-	@for r in $(RES_LIST); do for v in $(VARIANTS); do \
-	  s=$$(echo $$v | tr _ ' '); t=$$(echo $$v | sed 's/_-whsolver_/-/; s/_-periods_/-p/'); \
-	  $(MPIRUN) -n $(NP) ./cavity -solver $$s -res $$r -omega $(OMEGA) > $(LOCAL_OUT)/conv_cpp_$${t}_np$(NP)_r$$r.log 2>&1; \
-	  $(MPIRUN) -n $(NP) $(PYTHON) cavity.py -solver $$s -res $$r -omega $(OMEGA) > $(LOCAL_OUT)/conv_py_$${t}_np$(NP)_r$$r.log 2>&1; \
-	  grep -h RESULT $(LOCAL_OUT)/conv_*_$${t}_np$(NP)_r$$r.log; \
-	done; done
-	$(PYTHON) analyze.py $(LOCAL_OUT)
+	@set -e; for w in $(OMEGA); do \
+	  out=results/local; [ "$$w" != 1 ] && out=$${out}_w$$w; mkdir -p $$out; \
+	  for r in $(RES_LIST); do for v in $(VARIANTS); do \
+	    s=$$(echo $$v | tr _ ' '); t=$$(echo $$v | sed 's/_-whsolver_/-/; s/_-periods_/-p/'); \
+	    $(MPIRUN) -n $(NP) ./cavity -solver $$s -res $$r -omega $$w > $$out/conv_cpp_$${t}_np$(NP)_r$$r.log 2>&1 || true; \
+	    $(MPIRUN) -n $(NP) $(PYTHON) cavity.py -solver $$s -res $$r -omega $$w > $$out/conv_py_$${t}_np$(NP)_r$$r.log 2>&1 || true; \
+	    grep -h RESULT $$out/conv_*_$${t}_np$(NP)_r$$r.log || true; \
+	  done; done; \
+	  $(PYTHON) analyze.py $$out; \
+	done
 
 strong weak conv: cavity
 	./submit.sh $@
@@ -82,4 +92,4 @@ analyze:
 	$(PYTHON) analyze.py results
 
 clean:
-	rm -rf cavity cavity.dSYM
+	rm -rf cavity cavity_omp cavity.dSYM cavity_omp.dSYM
