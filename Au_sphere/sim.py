@@ -15,13 +15,13 @@ cell = mp.Vector3(sx+2*dpml,sy+2*dpml,sz+2*dpml)
 pml_layers = [mp.PML(dpml)]
 
 # resolution: number of pixels per um
-resolution = 100
+resolution = 300
 
 # Courant number
 Courant = 0.30
 
 # symmetries
-symmetries = [mp.Mirror(mp.Z)]
+symmetries = [mp.Mirror(mp.Z), mp.Mirror(mp.Y)]
 
 # setting frequency
 fcen = 1/0.515
@@ -64,7 +64,7 @@ sim = mp.Simulation(cell_size=cell,
 
 sim.init_sim()
 # MeepHoltz: solve_wh(tol, maxiters, L, periods, solver); res 100 needs ~450 GMRES iterations
-sim.solve_wh(1e-7,10000,50)
+sim.solve_wh(2e-5, 10000, 50, 1)
 #sim.solve_cw(1e-7,10000,2)  # needs force_complex_fields=True; breaks down for this eps < 0 sphere
 
 ## output for ParaView: one HDF5 file + an XDMF descriptor (open the .xdmf in ParaView)
