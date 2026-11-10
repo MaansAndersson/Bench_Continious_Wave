@@ -44,7 +44,7 @@ Driver flags: `-solver cw|wh  -res R  -sx/-sy/-sz  -omega  -eps  -tol  -maxiters
    ```bash
    source env_tinkercliff.sh && make
    ACCOUNT=<alloc> ./submit.sh strong   # res 64, 2x2x2 box; P = 1..128 on 1 node, then 256, 512, 1024
-   ACCOUNT=<alloc> ./submit.sh weak     # 32^3 cells/rank at res 32; box doubled in x, y, z in turn
+   ACCOUNT=<alloc> ./submit.sh weak     # 64^3 cells/rank (2x2x2 box at res 32); box scaled by P = px*py*pz (most cube-like, any P)
    ACCOUNT=<alloc> ./submit.sh conv     # res 8..96
    make analyze
    ```
@@ -67,7 +67,7 @@ Driver flags: `-solver cw|wh  -res R  -sx/-sy/-sz  -omega  -eps  -tol  -maxiters
      Note that the steps per period then grow with the resolution.
 
 **Interpreting weak scaling.** In `box` mode the cavity grows electrically: at 1024 ranks it is
-32x16x16 at w = 1, so modes come close to the source frequency and the iteration counts can grow.
+32x16x16 (16x8x8 times the base box) at w = 1, so modes come close to the source frequency and the iteration counts can grow.
 `analyze.py` therefore reports both the efficiency of the total solve and the time per iteration.
 The time per FDTD step is the cleaner measure of parallel efficiency.
 
@@ -103,3 +103,20 @@ C++ and Python give identical errors, and so do both solvers.
 * The WaveHoltz iteration count does not depend on the resolution.
 * The `solve_cw` count grows roughly linearly with the resolution.
 * At res 32, `solve_wh` takes 4.9 s against 23 s for `solve_cw`.
+
+### Extrae traces (TinkerCliff)
+
+`extrae.slurm` writes small Paraver traces of the same problem run two ways on one node:
+pure MPI (8 ranks x 1 thread, `./cavity`) and MPI + OpenMP (2 ranks x 4 threads, `./cavity_omp`),
+for `solve_wh` and `solve_cw`. Extrae only runs on Linux, so this needs TinkerCliff, not macOS.
+
+```bash
+./extrae/build_extrae.sh            # once: Extrae 4.2.3 into $HOME/extrae (MPI + GNU OpenMP, no PAPI)
+./extrae/build_meep_omp.sh          # once: MeepHoltz --with-openmp into $MEEP_ROOT/_local_omp
+sbatch --account=<alloc> extrae.slurm      # RES=24 by default; NP_MPI, NP_OMP, NT_OMP, SOLVERS
+```
+
+The traces are `results/trace/cavity_<solver>_<np>x<nt>.prv`. `extrae/trace.sh` preloads
+`libmpitrace.so` or `libompitrace.so` in each rank, and `extrae/extrae.xml` records MPI and OpenMP
+events only. Meep threads the field updates (`step_generic`), not the Krylov vector operations, so
+the hybrid traces show how much of each solve runs serially inside a rank.
